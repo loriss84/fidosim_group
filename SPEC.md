@@ -1,5 +1,12 @@
 # Simulatore Fido SIAD v3 — specifica
 
+> **Versione 4.0 (24/11/2026): multi-paese.** La specifica sotto è quella della Romania e resta valida parola per
+> parola per la Romania (stessi numeri: `tests/fixtures/golden_ro.json.gz`). Per gli altri paesi cambiano solo:
+> valuta (tutti gli importi "RON" sono in valuta locale), prefisso IVA tolto nell'abbinamento Cerved, valori locali
+> (`min_limit`, `rounding_step`, `approval_min_change`, `eur_rate`, `intercompany_codes`: `core/country.py`) e la
+> fonte del bilancio pubblico (`core/bs_providers.py`: RO ANAF, SK RÚZ, AT/CZ/DE/HU valori scritti a mano).
+> Nuovo parametro `country` (dati, non formula). Cerved resta facoltativo: senza, tutti "non in Cerved".
+
 ## 1. Perché esiste
 
 Loris Sambinelli (Project Manager Finance, SIAD S.p.A.) sta definendo come calcolare
@@ -217,7 +224,7 @@ Controlli e indicatori per cliente:
 - **Oltre fido** (nuovo / attuale): esposizione > fido, solo per i clienti nel perimetro del controllo.
 - **Plausibilità**: `Turnover 12 months` / `FATTURATO_NO_BIL` > soglia (default **10%**) → "revisione manuale".
 - **Approvazione**: serve se la variazione rispetto al fido attuale è oltre ±20% (parametro `approval_threshold`)
-  **e** oltre 5.000 RON in valore assoluto (parametro `approval_min_change_ron`, in "Altre impostazioni"; decisione
+  **e** oltre 5.000 RON in valore assoluto (parametro `approval_min_change`, in "Altre impostazioni"; decisione
   finale 20/11/2026). Un cliente senza fido attuale con un fido proposto sopra 5.000 RON richiede approvazione.
 - **Livello di approvazione** per importo in EUR (al cambio parametro): Tier 1 ≤ 50.000 €, Tier 2 ≤ 200.000 €,
   Tier 3 oltre (soglie parametro; provvisorie).

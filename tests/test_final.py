@@ -130,7 +130,7 @@ def test_integer_parameters():
     assert Params(min_limit=5000.0).min_limit == 5000 and isinstance(Params(min_limit=5000.0).min_limit, int)
     assert Params(min_limit=5000.5).validate() and Params(rounding_step=500.5).validate()
     assert Params.from_dict({"min_limit": 5000.5}).min_limit == 5000      # JSON import: whole RON
-    assert not Params(approval_min_change_ron=0).validate()
+    assert not Params(approval_min_change=0).validate()
 
 
 def test_julian_and_out_of_range_numeric_dates():

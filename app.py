@@ -1,4 +1,4 @@
-"""Simulatore Fido SIAD Romania (v3): Streamlit entry point.
+"""Simulatore Fido SIAD (v4, multi-paese): Streamlit entry point.
 
 Thin shell: page config, navigation and sidebar. The pages are in ui/pages/, the shared
 state in ui/common.py, the calculation in core/. Start with run.bat (Windows) or run.sh.
@@ -21,6 +21,8 @@ st.set_page_config(page_title=C.L("app_title"), layout="wide", initial_sidebar_s
 st.markdown(C.CSS, unsafe_allow_html=True)
 
 data, _key = C.get_data()
+if C.sync_country(data):      # a Check fidi of another country: switch, read the files again for it
+    st.rerun()
 default = "results" if data.ok else "data"
 spec = [("data", "nav_data", ":material/folder_open:"),
         ("results", "nav_results", ":material/insights:"),

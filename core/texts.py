@@ -15,6 +15,8 @@ import math
 import string
 from typing import Any
 
+from .country import localise
+
 LANGS = ("it", "en")
 
 
@@ -69,7 +71,7 @@ def render(template: str, lang: str = "it", **values: Any) -> str:
     class _D(dict):
         def __missing__(self, k: str) -> None:
             return None
-    return _Fmt(lang).vformat(template, (), _D(values))
+    return localise(_Fmt(lang).vformat(template, (), _D(values)))
 
 
 def t(table: dict[str, dict[str, Any]], code: str, lang: str = "it", **values: Any) -> str:
@@ -1289,6 +1291,7 @@ _DECK: list[tuple[str, str, str]] = [
     ("p_approval_min_help", "Serve approvazione solo se il fido cambia anche di più di questo importo.",
      "Approval only when the limit also changes by more than this amount."),
     ("p_eur_rate", "Cambio (RON per 1 EUR)", "Exchange rate (RON per 1 EUR)"),
+    ("p_country", "Paese", "Country"),
     ("p_eur_rate_help", "Per i fidi Cerved in EUR e per i livelli di approvazione.", "For Cerved limits in EUR and for approval tiers."),
     ("p_tier1", "Tier 1 fino a (EUR)", "Tier 1 up to (EUR)"),
     ("p_tier2", "Tier 2 fino a (EUR)", "Tier 2 up to (EUR)"),
@@ -1678,10 +1681,10 @@ PARAM_LABEL_KEYS: dict[str, str] = {
     "coef_max_caution": "p_coef_max_caution", "coef_not_in_cerved": "p_coef_not_in_cerved",
     "coef_exempt_not_in_cerved": "p_coef_exempt_nf", "cerved_cap_enabled": "p_cerved_cap_on",
     "ceiling_is_hard": "p_ceiling_hard", "cerved_reject_vat_conflict": "p_vat_conflict",
-    "terms_positive_only": "p_terms_positive", "eur_ron": "p_eur_rate", "rounding_step": "p_round_step",
+    "country": "p_country", "terms_positive_only": "p_terms_positive", "eur_rate": "p_eur_rate", "rounding_step": "p_round_step",
     "rounding_mode": "p_round_dir", "min_limit": "p_min_limit",
     "plausibility_threshold": "p_plaus_pct", "approval_threshold": "p_approval_pct",
-    "approval_min_change_ron": "p_approval_min", "m1_days_basis": "p_m1_basis",
+    "approval_min_change": "p_approval_min", "m1_days_basis": "p_m1_basis",
     "behaviour_enabled": "p_behaviour_on", "behaviour_bonus_max": "p_beh_bonus",
     "behaviour_malus_max": "p_beh_malus", "behaviour_tolerance_days": "p_beh_tol",
     "behaviour_full_malus_days": "p_beh_full",
@@ -1708,8 +1711,15 @@ def T(key: str, lang: str = "it", **values: Any) -> str:
     entry = TEXTS.get(key)
     if entry is None:
         return key
-    tpl = entry.get(lang) or entry.get("en") or key
-    return tpl.format_map(_Keep(values)) if values else tpl
+    tpl = _override(key, lang) or entry.get(lang) or entry.get("en") or key
+    return localise(tpl.format_map(_Keep(values)) if values else tpl)
+
+
+def _override(key: str, lang: str) -> str | None:
+    """Country-specific wording (e.g. the balance-sheet source), see ``COUNTRY_TEXTS``."""
+    from .country import active
+    entry = COUNTRY_TEXTS.get(active().code, {}).get(key)
+    return None if entry is None else (entry.get(lang) or entry.get("en"))
 
 
 
@@ -1944,3 +1954,160 @@ _BALANCE_DECK = [
     ("bs_vs_na", "non giudicabile", "cannot judge"),
 ]
 TEXTS.update({k: {"it": it, "en": en} for k, it, en in _BALANCE_DECK})
+
+
+# ---------------------------------------------------------------------------
+# Country-specific wording: COUNTRY_TEXTS[country][key] = {"it", "en"} replaces TEXTS[key]
+# for that country (RON in a text becomes the local currency for every country, see country.localise).
+# ---------------------------------------------------------------------------
+COUNTRY_TEXTS: dict[str, dict[str, dict[str, str]]] = {}
+
+# Keys used by the multi-country Customer page (all countries; Romania keeps the texts above).
+TEXTS.update({k: {"it": it, "en": en} for k, it, en in [
+    ("app_subtitle_c", "SIAD {country} · {cur}", "SIAD {country} · {cur}"),
+    ("bs_no_data", "In {src} ci sono bilanci di questa azienda ({years}) ma non in forma di tabella (bilancio IFRS "
+     "o documento scansionato): i numeri non si possono leggere in automatico. [Aprire il registro]({url})",
+     "{src} has balance sheets of this company ({years}) but not as tables (IFRS statements or scanned "
+     "documents): the figures cannot be read automatically. [Open the register]({url})"),
+    ("bs_newer_pdf", "Esiste un bilancio più recente (periodo fino a {period}) solo come documento: [aprirlo]({url}).",
+     "A more recent balance sheet (period up to {period}) exists only as a document: [open it]({url})."),
+    ("bs_period", "Periodo del bilancio: {period} · schema {tpl}", "Balance-sheet period: {period} · form {tpl}"),
+    ("bs_open_register", "Apri il registro ({src})", "Open the register ({src})"),
+    ("bs_m_title", "Valori dell'ultimo bilancio, copiati dal registro", "Figures of the last balance sheet, copied from the register"),
+    ("bs_m_help", "Importi in {cur}, come nel bilancio. Voci da cercare: {terms}. Lasciare vuoto ciò che non c'è.",
+     "Amounts in {cur}, as in the balance sheet. Items to look for: {terms}. Leave blank what is not there."),
+    ("bs_m_year", "Anno di chiusura del bilancio", "Balance-sheet year end"),
+    ("bs_m_name", "Nome dell'azienda nel registro", "Company name in the register"),
+    ("bs_m_share", "Capitale sociale", "Share capital"),
+    ("bs_m_save", "Salva e valuta", "Save and assess"),
+    ("bs_m_delete", "Cancella i valori inseriti", "Delete the figures entered"),
+    ("bs_m_saved", "Valori inseriti a mano il {at}.", "Figures entered by hand on {at}."),
+    ("bs_m_need_equity", "Serve almeno il patrimonio netto.", "At least the net equity is needed."),
+    ("bs_m_key", "Chiave usata per salvare i valori: {k}", "Key used to save the figures: {k}"),
+    ("data_country", "Paese", "Country"),
+    ("data_country_help", "La società JDE dei file: valuta, partite IVA, valori locali (fido minimo, arrotondamento, "
+     "materialità) e fonte dei bilanci pubblici. Cambiando paese i file vengono riletti.",
+     "The JDE company of the files: currency, VAT numbers, local values (minimum limit, rounding, materiality) "
+     "and source of public balance sheets. Changing the country reads the files again."),
+    ("data_country_info", "**{country}** · valuta **{cur}** · fido minimo {min} · arrotondamento {step} · "
+     "materialità {mat} · bilanci pubblici: {bs}",
+     "**{country}** · currency **{cur}** · minimum limit {min} · rounding {step} · materiality {mat} · "
+     "public balance sheets: {bs}"),
+    ("data_country_bs_auto", "lettura automatica da {src}", "read automatically from {src}"),
+    ("data_country_bs_manual", "inserimento a mano dal registro {src}", "typed in by hand from the register {src}"),
+    ("data_country_detected", "Il file Check fidi è di **{country}**: paese impostato di conseguenza (valuta {cur}).",
+     "The Check fidi file is from **{country}**: country set accordingly (currency {cur})."),
+    ("data_country_mismatch", "Il file Check fidi sembra di **{detected}**, ma il paese scelto è **{country}**.",
+     "The Check fidi file looks like **{detected}**, but the country chosen is **{country}**."),
+    ("data_country_switch", "Passa a {country}", "Switch to {country}"),
+    ("data_no_intercompany", "Per {country} l'elenco dei clienti intercompany è vuoto: aggiungerli nel Laboratorio "
+     "(Altre impostazioni) perché siano esclusi dal calcolo.",
+     "For {country} the list of intercompany customers is empty: add them in the Lab (Other settings) to exclude "
+     "them from the calculation."),
+]})
+
+BS_TERMS = {   # balance-sheet items as the registers call them (manual entry help)
+    "AT": "Eigenkapital, Verbindlichkeiten, Umlaufvermögen, Umsatzerlöse, Jahresüberschuss / Jahresfehlbetrag",
+    "DE": "Eigenkapital, Verbindlichkeiten, Umlaufvermögen, Umsatzerlöse, Jahresüberschuss / Jahresfehlbetrag",
+    "CZ": "Vlastní kapitál, Cizí zdroje, Oběžná aktiva, Tržby (Čistý obrat), Výsledek hospodaření za účetní období",
+    "HU": "Saját tőke, Kötelezettségek, Forgóeszközök, Értékesítés nettó árbevétele, Adózott eredmény",
+}
+
+
+def _country_texts() -> None:
+    from .country import PROFILES
+    chart = TEXTS["blk_caption"]
+    neutral = {"it": chart["it"].replace(
+        "In Romania la consegna si fattura subito, quindi le fatture rappresentano le consegne; mancano solo gli "
+        "ordini non ancora consegnati e le partite aperte più vecchie del file AR124.",
+        "Il grafico usa le fatture: mancano gli ordini e le consegne non ancora fatturati e le partite aperte più "
+        "vecchie del file AR124."),
+        "en": chart["en"].replace(
+        "In Romania deliveries are invoiced at once, so invoices stand for deliveries; only orders not yet "
+        "delivered and open items older than the AR124 file are missing.",
+        "The chart uses invoices: orders and deliveries not yet invoiced and open items older than the AR124 "
+        "file are missing.")}
+    sk = {k: {"it": it, "en": en} for k, it, en in [
+        ("cust_tab_balance", "Bilancio pubblico (RÚZ)", "Public balance sheet (RÚZ)"),
+        ("bs_intro", "Leggiamo l'ultimo bilancio che l'azienda ha depositato nel registro pubblico slovacco dei "
+         "bilanci (RÚZ, Ministero delle Finanze) e controlliamo se il fido proposto è proporzionato alla sua "
+         "solidità. È un secondo parere: non cambia il fido calcolato dalla formula.",
+         "We read the last balance sheet the company filed with the Slovak public register of financial "
+         "statements (RÚZ, Ministry of Finance) and check whether the proposed limit is in proportion to how solid "
+         "it is. It is a second opinion: it does not change the limit calculated by the formula."),
+        ("bs_btn_refresh", "Aggiorna da RÚZ", "Refresh from RÚZ"),
+        ("bs_spinner", "Interrogo RÚZ per {cui}… (qualche secondo)", "Querying RÚZ for {cui}… (a few seconds)"),
+        ("bs_no_cui", "Questo cliente non ha né una partita IVA slovacca né un IČO: il bilancio non si può cercare.",
+         "This customer has neither a Slovak VAT number nor an IČO: the balance sheet cannot be looked up."),
+        ("bs_foreign", "Partita IVA estera: RÚZ ha solo i bilanci delle aziende slovacche.",
+         "Foreign VAT number: RÚZ only has balance sheets of Slovak companies."),
+        ("bs_not_found", "Nessun bilancio trovato in RÚZ per {cui}. Succede per le ditte individuali (bilanci non "
+         "pubblici), le aziende appena nate e chi non ha depositato il bilancio.",
+         "No balance sheet found in RÚZ for {cui}. This happens for sole traders (their statements are not "
+         "public), newly founded companies and companies that did not file."),
+        ("bs_error", "RÚZ non risponde ({err}). Controllare la connessione o aprire il registro: {url}",
+         "RÚZ does not answer ({err}). Check the connection or open the register: {url}"),
+        ("bs_source", "{name} · IČO/DIČ {cui} · bilancio {year} · attività: {desc} · letto il {at} · [fonte RÚZ]({url})",
+         "{name} · IČO/DIČ {cui} · {year} balance sheet · business: {desc} · read on {at} · [RÚZ source]({url})"),
+        ("bs_name_differs", "Il nome in RÚZ ({name}) è diverso da quello in anagrafica: controllare la partita IVA.",
+         "The RÚZ name ({name}) differs from the customer master: check the VAT number."),
+        ("bs_raw", "Tutte le righe del bilancio pubblicate da RÚZ (periodo corrente)",
+         "All balance-sheet lines published by RÚZ (current period)"),
+        ("bs_raw_code", "Riga", "Line"),
+        ("bs_raw_desc", "Voce (slovacco)", "Item (Slovak)"),
+        ("bs_strip_title", "Controllo sul bilancio (RÚZ)", "Balance-sheet check (RÚZ)"),
+        ("bs_strip_details", "Bilancio {year} spiegato in parole semplici nella scheda **Bilancio pubblico (RÚZ)** qui sotto.",
+         "The {year} balance sheet explained in plain words in the **Public balance sheet (RÚZ)** tab below."),
+    ]}
+    sk["blk_caption"] = neutral
+    COUNTRY_TEXTS["SK"] = sk
+    euro = {  # euro countries: no exchange rate to show
+        "ck_tier_val": {"it": "Tier {t} ({eur} EUR)", "en": "Tier {t} ({eur} EUR)"},
+        "rl_tiers": {"it": "Il livello di approvazione dipende dal fido proposto (non dalla variazione): Tier 1 fino "
+                           "a {t1} EUR, Tier 2 fino a {t2} EUR, Tier 3 oltre (soglie provvisorie).",
+                     "en": "The approval tier depends on the proposed limit (not on the change): Tier 1 up to {t1} "
+                           "EUR, Tier 2 up to {t2} EUR, Tier 3 above (provisional thresholds)."}}
+    for code, c in PROFILES.items():
+        if c.balance_source != "manual":
+            continue
+        src = c.register_name
+        d = {k: {"it": it.replace("{src}", src).replace("{country}", c.name_it),
+                 "en": en.replace("{src}", src).replace("{country}", c.name_en)} for k, it, en in [
+            ("cust_tab_balance", "Bilancio pubblico ({src})", "Public balance sheet ({src})"),
+            ("bs_intro", "Per {country} non c'è un servizio pubblico gratuito che dia i numeri del bilancio a un "
+             "programma: apri il registro ({src}), cerca l'azienda e scrivi qui sotto i valori dell'ultimo "
+             "bilancio. Li salviamo su questo PC e controlliamo se il fido proposto è proporzionato alla solidità "
+             "dell'azienda. È un secondo parere: non cambia il fido calcolato dalla formula.",
+             "For {country} there is no free public service that gives balance-sheet figures to a program: open "
+             "the register ({src}), find the company and type the figures of the last balance sheet below. They "
+             "are saved on this PC and we check whether the proposed limit is in proportion to how solid the "
+             "company is. It is a second opinion: it does not change the limit calculated by the formula."),
+            ("bs_strip_todo", "Apri il registro e scrivi i valori del bilancio nella scheda **Bilancio pubblico** qui "
+             "sotto: ti diciamo se il fido proposto va bene o quale sarebbe un fido corretto.",
+             "Open the register and type the balance-sheet figures in the **Public balance sheet** tab below: we "
+             "tell you whether the proposed limit is right or what a correct limit would be."),
+            ("bs_tab_todo", "Scrivi i valori dell'ultimo bilancio nel riquadro qui sotto.",
+             "Type the figures of the last balance sheet in the box below."),
+            ("bs_no_cui", "Questo cliente non ha una partita IVA locale: cerca l'azienda per nome nel registro.",
+             "This customer has no local VAT number: find the company by name in the register."),
+            ("bs_foreign", "Partita IVA estera: il registro {src} ha solo le aziende di {country}.",
+             "Foreign VAT number: the register {src} only has companies of {country}."),
+            ("bs_source", "{name} · bilancio {year} · inserito a mano il {at} · [registro {src}]({url})",
+             "{name} · {year} balance sheet · typed in on {at} · [register {src}]({url})"),
+            ("bs_name_differs", "Il nome scritto ({name}) è diverso da quello in anagrafica: controllare l'azienda.",
+             "The name typed ({name}) differs from the customer master: check the company."),
+            ("bs_raw", "Valori inseriti", "Figures entered"),
+            ("bs_raw_code", "Campo", "Field"),
+            ("bs_raw_desc", "Voce", "Item"),
+            ("bs_strip_title", "Controllo sul bilancio ({src})", "Balance-sheet check ({src})"),
+            ("bs_strip_details", "Bilancio {year} spiegato in parole semplici nella scheda **Bilancio pubblico** qui sotto.",
+             "The {year} balance sheet explained in plain words in the **Public balance sheet** tab below."),
+        ]}
+        d["blk_caption"] = neutral
+        if c.currency == "EUR":
+            d.update(euro)
+        COUNTRY_TEXTS[code] = d
+    COUNTRY_TEXTS["SK"].update(euro)
+
+
+_country_texts()

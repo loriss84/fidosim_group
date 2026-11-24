@@ -34,6 +34,8 @@ class Params:
     terms + payment bonus / malus + customer-age bands); ``Params(**V31)`` = the v3.1 formula,
     ``Params(**OLD_V3)`` = the previous v3 formula."""
 
+    # --- Country (Paese): currency, VAT prefix, local defaults, balance-sheet source (core.country) ---
+    country: str = "RO"
     # --- Need (Bisogno) ---
     reference_date: str | None = None      # ISO date; None = latest AR124 invoice date
     window_months: int = 12                # payment-days look-back window
@@ -66,14 +68,14 @@ class Params:
     # --- Ceilings and rounding (Tetti e arrotondamenti) ---
     cerved_cap_enabled: bool = True        # min(limit, Cerved suggested limit)
     ceiling_is_hard: bool = True           # rounding/minimum never exceed the Cerved limit
-    eur_ron: float = 4.975                 # RON per 1 EUR
+    eur_rate: float = 4.975                # local currency per 1 EUR (RON for Romania)
     rounding_step: int = 1000
     rounding_mode: str = ROUND_UP          # "up" | "down"
-    min_limit: int = 5000                  # minimum for limits > 0 (whole RON)
+    min_limit: int = 5000                  # minimum for limits > 0 (whole units of local currency)
     # --- Controls (Controlli) ---
     plausibility_threshold: float = 0.10   # turnover SIAD / total turnover
     approval_threshold: float = 0.20       # |change| vs current limit
-    approval_min_change_ron: int = 5000    # materiality: approval only if |change| is also above this
+    approval_min_change: int = 5000    # materiality: approval only if |change| is also above this
     tier1_eur: float = 50000.0
     tier2_eur: float = 200000.0
     # --- Populations (lists) ---
@@ -91,6 +93,8 @@ class Params:
             if meta["kind"] == "int" and isinstance(v, float) and not isinstance(v, bool) \
                     and v == v and float(v).is_integer():
                 setattr(self, key, int(v))
+        if isinstance(self.country, str):
+            self.country = self.country.strip().upper()
         for key in ("special_classes", "exempt_classes"):
             v = getattr(self, key)
             if isinstance(v, (list, tuple)):
@@ -114,6 +118,8 @@ class Params:
                 errs.append(f"{key}: {v} outside [{meta['min']}, {meta['max']}]")
             elif meta["kind"] == "int" and float(v) != int(v):
                 errs.append(f"{key}: must be a whole number ({v!r})")
+        if self.country not in PARAM_META["country"]["choices"]:
+            errs.append(f"country: {self.country!r} not in {PARAM_META['country']['choices']}")
         if self.rounding_mode not in (ROUND_UP, ROUND_DOWN):
             errs.append(f"rounding_mode: {self.rounding_mode!r} not in ('up', 'down')")
         if self.m1_days_basis not in (DAYS_MEASURED, DAYS_CONTRACTUAL):
@@ -157,6 +163,7 @@ class Params:
         """Build from a dict; unknown keys are ignored, missing keys take defaults."""
         known = {f.name for f in fields(cls)}
         kw: dict[str, Any] = {}
+        d = {OLD_NAMES.get(k, k): v for k, v in d.items() if OLD_NAMES.get(k, k) not in d or k not in OLD_NAMES}
         for k, v in d.items():
             if k not in known:
                 continue
@@ -178,6 +185,14 @@ class Params:
     @classmethod
     def from_json(cls, s: str) -> "Params":
         return cls.from_dict(json.loads(s))
+
+    @classmethod
+    def for_country(cls, code: str | None, **kw: Any) -> "Params":
+        """Default formula with the local defaults of a country (currency amounts, intercompany)."""
+        from .country import get
+        d = get(code).param_defaults()
+        d.update(kw)
+        return cls.from_dict(d)
 
     def replace(self, **changes: Any) -> "Params":
         """Copy with some values changed (keys validated against the dataclass)."""
@@ -219,10 +234,11 @@ def _m(group: str, kind: str, mn: float | None = None, mx: float | None = None,
 
 # UI metadata. group keys: need / risk / caps / controls / populations.
 # unit keys: "months", "days", "pct" (value is a fraction, show x100), "x" (multiplier),
-# "coef", "RON", "EUR", "RON/EUR", "invoices", "" ; sensitivity=True -> offered in the sensitivity analysis.
+# "coef", "LOCAL" (local currency), "EUR", "LOCAL/EUR", "invoices", "" ; sensitivity=True -> offered in the sensitivity analysis.
 # primary=True -> suggested for the Laboratory panel (19 of them: the 15 of v3.1 + the 4 customer-age ones);
 # the others are still valid parameters (Data page, advanced, or fixed).
 PARAM_META: dict[str, dict[str, Any]] = {
+    "country": _m("populations", "choice", primary=False),
     "reference_date": _m("need", "date", primary=False),
     "window_months": _m("need", "int", 1, 36, 1, "months", primary=False, sensitivity=True),
     "fallback_days": _m("need", "int", 0, 365, 5, "days", primary=False, sensitivity=True),
@@ -252,13 +268,13 @@ PARAM_META: dict[str, dict[str, Any]] = {
     "behaviour_min_invoices": _m("age", "int", 0, 100, 1, "invoices", sensitivity=True),
     "cerved_cap_enabled": _m("caps", "bool"),
     "ceiling_is_hard": _m("caps", "bool", primary=False),
-    "eur_ron": _m("caps", "float", 1.0, 10.0, 0.0005, "RON/EUR", primary=False),
-    "rounding_step": _m("caps", "int", 1, 100000, 500, "RON", primary=False),
+    "eur_rate": _m("caps", "float", 0.0001, 10000.0, 0.0005, "LOCAL/EUR", primary=False),
+    "rounding_step": _m("caps", "int", 1, 10_000_000, 500, "LOCAL", primary=False),
     "rounding_mode": _m("caps", "choice"),
-    "min_limit": _m("caps", "int", 0, 1_000_000, 1000, "RON", sensitivity=True),
+    "min_limit": _m("caps", "int", 0, 100_000_000, 1000, "LOCAL", sensitivity=True),
     "plausibility_threshold": _m("controls", "float", 0.0, 1.0, 0.01, "pct", sensitivity=True),
     "approval_threshold": _m("controls", "float", 0.0, 5.0, 0.05, "pct", sensitivity=True),
-    "approval_min_change_ron": _m("controls", "int", 0, 100_000_000, 1000, "RON", primary=False),
+    "approval_min_change": _m("controls", "int", 0, 10_000_000_000, 1000, "LOCAL", primary=False),
     "tier1_eur": _m("controls", "float", 0.0, 1e8, 10000.0, "EUR", primary=False),
     "tier2_eur": _m("controls", "float", 0.0, 1e8, 10000.0, "EUR", primary=False),
     "intercompany_codes": _m("populations", "list", primary=False),
@@ -266,6 +282,9 @@ PARAM_META: dict[str, dict[str, Any]] = {
     "exempt_classes": _m("populations", "list", primary=False),
 }
 PARAM_META["rounding_mode"]["choices"] = [ROUND_UP, ROUND_DOWN]
+PARAM_META["country"]["choices"] = ["RO", "SK", "AT", "CZ", "DE", "HU"]
+# Parameter names of the single-country simulator (scenario files saved before the rename load as they are).
+OLD_NAMES = {"eur_ron": "eur_rate", "approval_min_change_ron": "approval_min_change"}
 PARAM_META["m1_days_basis"]["choices"] = [DAYS_MEASURED, DAYS_CONTRACTUAL]
 
 PARAM_GROUPS = ["need", "risk", "behaviour", "age", "caps", "controls", "populations"]

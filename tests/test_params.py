@@ -6,7 +6,7 @@ def test_defaults_v3():
     p = Params()
     assert (p.multiplier, p.buffer, p.min_days, p.cap_extra_days, p.fallback_days) == (2.0, 0.10, 15, 15, 30)
     assert (p.coef_reliable, p.coef_caution, p.coef_max_caution, p.coef_not_in_cerved) == (1.0, 0.7, 0.0, 0.5)
-    assert (p.rounding_step, p.rounding_mode, p.min_limit, p.eur_ron) == (1000, "up", 5000.0, 4.975)
+    assert (p.rounding_step, p.rounding_mode, p.min_limit, p.eur_rate) == (1000, "up", 5000.0, 4.975)
     assert (p.plausibility_threshold, p.approval_threshold, p.tier1_eur, p.tier2_eur) == (0.10, 0.20, 50000, 200000)
     assert p.ceiling_is_hard and p.cerved_cap_enabled
     assert p.intercompany_codes == ["30001069", "30005389", "30001070"]

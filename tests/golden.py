@@ -52,6 +52,11 @@ def snapshot() -> dict[str, Any]:
     from core.loaders import load_files
     from tests import synthetic as S
     from ui import logic as LG
+    try:                                 # multi-country version: the files are Romanian
+        from core.country import set_active
+        set_active("RO")
+    except ImportError:                  # single-country simulator (the snapshot was written with it)
+        pass
 
     files = S.files("RO")
     datasets = {"full": load_files(files),
@@ -118,9 +123,32 @@ def compare(a: Any, b: Any, path: str = "", out: list[str] | None = None, limit:
     return out
 
 
+RENAMED = {"eur_rate": "eur_ron", "approval_min_change": "approval_min_change_ron"}   # new -> golden name
+
+
+def as_golden(snap: dict[str, Any]) -> dict[str, Any]:
+    """Intended differences of the multi-country version, undone before comparing with the golden file:
+    the Parameters sheet has the new ``country`` row and the two renamed parameters."""
+    for entry in snap.values():
+        for k, sheets in entry.items():
+            if not k.startswith("excel_"):
+                continue
+            for name, sh in sheets.items():
+                if "key" not in sh["columns"]:
+                    continue
+                i = sh["columns"].index("key")
+                if any(r[i] == "country" for r in sh["data"]):
+                    keep = [n for n, r in enumerate(sh["data"]) if r[i] != "country"]
+                    sh["data"] = [sh["data"][n] for n in keep]
+                    sh["index"] = list(range(len(keep)))
+                for r in sh["data"]:
+                    r[i] = RENAMED.get(r[i], r[i])
+    return snap
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["write"]:
         write()
     else:
-        d = compare(load(), snapshot())
+        d = compare(load(), as_golden(snapshot()))
         print("identical" if not d else "\n".join(d))

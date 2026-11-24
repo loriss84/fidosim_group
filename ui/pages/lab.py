@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from core import country as CO
 from core.kpi import changed_customers
 from core.params import Params
 from core.sensitivity import sensitivity
@@ -36,6 +37,7 @@ if C.no_data(data):
     st.stop()
 
 p0 = C.params()
+SF = CO.active().step_factor   # local-currency inputs: Romanian steps x this (EUR: 0,25)
 base = LG.base_params(p0)
 
 
@@ -56,10 +58,10 @@ CONV: dict[str, tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "approval_threshold": (_pct_in, lambda v: v / 100),
     "multiplier": (float, _r4), "coef_reliable": (float, _r4), "coef_caution": (float, _r4),
     "coef_max_caution": (float, _r4), "coef_not_in_cerved": (float, _r4),
-    "coef_exempt_not_in_cerved": (float, _r4), "eur_ron": (float, _r4),
+    "coef_exempt_not_in_cerved": (float, _r4), "eur_rate": (float, _r4),
     "min_days": (int, int), "fallback_days": (int, int), "cap_extra_days": (int, int),
     "rounding_step": (int, int), "min_limit": (int, int), "tier1_eur": (int, float), "tier2_eur": (int, float),
-    "approval_min_change_ron": (int, int),
+    "approval_min_change": (int, int),
     "behaviour_bonus_max": (_pct_in, lambda v: v / 100), "behaviour_malus_max": (_pct_in, lambda v: v / 100),
     "behaviour_tolerance_days": (int, int), "behaviour_full_malus_days": (int, int),
     "behaviour_enabled": (bool, bool), "m1_days_basis": (str, str),
@@ -230,23 +232,28 @@ with left:
             st.markdown(f"**{C.L('grp_caps')}**")
             toggle("cerved_cap_enabled", "p_cerved_cap_on")
             current("rounding_step")
-            steps = sorted({100, 500, 1000, 5000, int(ss[wkey("rounding_step")])})
+            steps = sorted(set(CO.active().rounding_choices()) | {int(ss[wkey("rounding_step")])})
             st.segmented_control(label("rounding_step", "p_round_step"), steps, key=wkey("rounding_step"),
                                  format_func=lambda v: LG.num(v, lg), help=C.L("p_round_step_help"),
                                  on_change=_sync)
-            number("min_limit", "p_min_limit", 0, 50000, 1000, show_value=True)
+            number("min_limit", "p_min_limit", 0, int(50000 * SF), max(1, int(1000 * SF)), show_value=True)
         with st.container(border=True):
             st.markdown(f"**{C.L('grp_checks')}**")
             slider("plausibility_threshold", "p_plaus_pct", 1, 50, 1, "%d%%")
             slider("approval_threshold", "p_approval_pct", 0, 100, 5, "%d%%")
     with st.expander(C.L("grp_other")):
-        number("approval_min_change_ron", "p_approval_min", 0, 1_000_000, 1000, show_value=True)
+        number("approval_min_change", "p_approval_min", 0, int(1_000_000 * SF), max(1, int(1000 * SF)), show_value=True)
         current("rounding_mode")
         st.segmented_control(label("rounding_mode", "p_round_dir"), ["up", "down"], key=wkey("rounding_mode"),
                              format_func=lambda v: tl("p_round_up" if v == "up" else "p_round_down"),
                              on_change=_sync)
         slider("coef_exempt_not_in_cerved", "p_coef_exempt_nf", 0.0, 1.0, 0.05, "%.2f")
-        number("eur_ron", "p_eur_rate", 4.0, 6.0, 0.001, fmt="%.3f")
+        if CO.active().currency != "EUR":   # a euro country has nothing to convert
+            r0 = CO.active().eur_rate
+            number("eur_rate", "p_eur_rate", round(r0 * 0.8, 3), round(r0 * 1.25, 3), 0.001 if r0 < 50 else 0.1,
+                   fmt="%.3f" if r0 < 50 else "%.1f")
+        else:
+            current("eur_rate")
         number("tier1_eur", "p_tier1", 0, 10_000_000, 10000, help_key="p_tier_help", show_value=True)
         number("tier2_eur", "p_tier2", 0, 10_000_000, 10000, help_key="p_tier_help", show_value=True)
         classes = sorted({c for c in data.customers["risk_class"].dropna().unique() if c})
@@ -386,7 +393,7 @@ with right:
             "coef_not_in_cerved": ("p_coef_not_in_cerved", 0.0, 1.0, 0.05, float, float, lambda v: LG.coef(v, lg)),
             "coef_max_caution": ("p_coef_max_caution", 0.0, 1.0, 0.05, float, float, lambda v: LG.coef(v, lg)),
             "coef_reliable": ("p_coef_reliable", 0.0, 1.0, 0.05, float, float, lambda v: LG.coef(v, lg)),
-            "min_limit": ("p_min_limit", 0.0, 20000.0, 1000.0, float, float, lambda v: LG.num(v, lg)),
+            "min_limit": ("p_min_limit", 0.0, 20000.0 * SF, max(1.0, 1000.0 * SF), float, float, lambda v: LG.num(v, lg)),
             "min_days": ("p_days_min", 0.0, 40.0, 5.0, int, float, lambda v: LG.days(v, lg)),
             "cap_extra_days": ("p_days_over_terms", 0.0, 60.0, 5.0, int, float, lambda v: LG.days(v, lg)),
             "fallback_days": ("p_days_default", 15.0, 90.0, 5.0, int, float, lambda v: LG.days(v, lg)),

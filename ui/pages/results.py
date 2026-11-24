@@ -94,7 +94,7 @@ r3[0].metric(C.L("kpi_zero"), LG.num(k["zero_with_turnover_n_active"], lg),
              delta_cur(k["zero_with_turnover_n_active"] - zc, LG.num(zc, lg)), delta_color="off",
              border=True, help=C.L("help_zero", cur=LG.num(zc, lg)))
 r3[1].metric(C.L("kpi_approval"), LG.num(k["approval_n"], lg), border=True,
-             help=C.L("help_approval", pct=LG.pct(p.approval_threshold, lg), amt=LG.amt(p.approval_min_change_ron, lg),
+             help=C.L("help_approval", pct=LG.pct(p.approval_threshold, lg), amt=LG.amt(p.approval_min_change, lg),
                       t1=LG.num(k["approval_tier1_n"], lg), t2=LG.num(k["approval_tier2_n"], lg),
                       t3=LG.num(k["approval_tier3_n"], lg)))
 with r3[2]:

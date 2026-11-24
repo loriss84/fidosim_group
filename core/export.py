@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from . import texts as T
+from .country import localise
 from .explain import add_texts
 from .kpi import kpis
 from .params import Params
@@ -58,10 +59,10 @@ def to_excel(result: pd.DataFrame, params: Params, lang: str = "it",
     if "behaviour_band" in df:
         df["behaviour_band"] = df["behaviour_band"].map(lambda b: T.BAND_TEXTS.get(b, {}).get(lang, b))
     df = df.replace([np.inf, -np.inf], np.nan)
-    df.columns = [T.COLUMN_TEXTS.get(c, (c, c))[li] for c in df.columns]
+    df.columns = [localise(T.COLUMN_TEXTS.get(c, (c, c))[li]) for c in df.columns]
 
     k = kpis(result)
-    kdf = pd.DataFrame({T.EXPORT_TEXTS["col_kpi"][lang]: [T.KPI_TEXTS.get(x, {}).get(lang, x) for x in k],
+    kdf = pd.DataFrame({T.EXPORT_TEXTS["col_kpi"][lang]: [localise(T.KPI_TEXTS.get(x, {}).get(lang, x)) for x in k],
                         "key": list(k), T.EXPORT_TEXTS["col_value"][lang]: list(k.values())})
     pd_ = params.to_dict()
     pdf = pd.DataFrame({T.EXPORT_TEXTS["col_param"][lang]:
@@ -126,5 +127,5 @@ def _param_label(key: str, lang: str) -> str:
     """Label from texts.PARAM_TEXTS (str or {"label": ...}) if the UI agent filled it, else the key."""
     e = T.PARAM_TEXTS.get(key, {}).get(lang)
     if isinstance(e, dict):
-        return str(e.get("label", key))
-    return str(e) if e else key
+        return localise(str(e.get("label", key)))
+    return localise(str(e)) if e else key

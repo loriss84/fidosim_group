@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .loaders import local_currency
+
 # Reason codes, in priority order (first true wins).
 R_INTERCOMPANY = "R_INTERCOMPANY"
 R_SPECIAL = "R_SPECIAL"
@@ -315,13 +317,13 @@ def steps(row: pd.Series, params: Any) -> list[dict[str, Any]]:
             and not bool(row["cerved_limit_usable"])
         add("S_CEILING_INVALID" if invalid else "S_NO_CEILING", row["limit_after_ceiling"],
             in_cerved=row["in_cerved"], orig=row["cerved_limit_orig"],
-            currency=row["cerved_currency"] if isinstance(row["cerved_currency"], str) else "RON")
+            currency=row["cerved_currency"] if isinstance(row["cerved_currency"], str) else local_currency())
     else:
         ceil_shown = row["ceiling_unit"] if p.ceiling_is_hard else row["ceiling"]  # whole RON (hard cap)
         add("S_CEILING_BINDS" if bool(row["ceiling_binds"]) else "S_CEILING_NOT_BINDING",
             row["limit_after_ceiling"], ceiling=ceil_shown, orig=row["cerved_limit_orig"],
-            currency=row["cerved_currency"] if isinstance(row["cerved_currency"], str) else "RON",
-            eur_ron=p.eur_ron, before=_after_behaviour(row))
+            currency=row["cerved_currency"] if isinstance(row["cerved_currency"], str) else local_currency(),
+            eur_rate=p.eur_rate, before=_after_behaviour(row))
     if bool(row["zero_special"]):
         add("S_ZERO_SPECIAL", 0.0, risk_class=row["risk_class"])
     elif bool(row["zero_no_turnover"]):

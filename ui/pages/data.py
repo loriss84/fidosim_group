@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from core import country as CO
 from core.kpi import data_summary
 from ui import common as C
 from ui import logic as LG
@@ -24,6 +25,32 @@ def _on_upload() -> None:
 def _clear_uploads() -> None:
     ss.uploads = []
 
+
+# --- 0. country ----------------------------------------------------------
+def _on_country() -> None:
+    C.set_country(ss["w_country_pick"])
+
+
+cty = CO.active()
+ss["w_country_pick"] = cty.code
+c0, c1 = st.columns([1, 3], vertical_alignment="center")
+c0.selectbox(C.L("data_country"), CO.CODES, key="w_country_pick", format_func=lambda c: CO.get(c).name(lg),
+             help=C.L("data_country_help"), on_change=_on_country)
+bs_txt = C.L("data_country_bs_auto" if cty.balance_source != "manual" else "data_country_bs_manual",
+             src=cty.register_name)
+c1.markdown(C.L("data_country_info", country=cty.name(lg), cur=cty.currency, min=LG.amt(p.min_limit, lg),
+                step=LG.amt(p.rounding_step, lg), mat=LG.amt(p.approval_min_change, lg), bs=bs_txt))
+if ss.get("country_detected") == cty.code:
+    st.info(C.L("data_country_detected", country=cty.name(lg), cur=cty.currency), icon=":material/public:")
+det = ss.get("country_from_file")
+if det and det != cty.code:
+    w1, w2 = st.columns([3, 1], vertical_alignment="center")
+    w1.warning(C.L("data_country_mismatch", detected=CO.get(det).name(lg), country=cty.name(lg)),
+               icon=":material/public:")
+    w2.button(C.L("data_country_switch", country=CO.get(det).name(lg)), on_click=C.set_country, args=(det,),
+              width="stretch")
+if data.ok and not p.intercompany_codes:
+    st.caption(C.L("data_no_intercompany", country=cty.name(lg)))
 
 # --- 1. three file cards --------------------------------------------------
 uploaded = C.uploaded_kinds(data)

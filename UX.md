@@ -405,7 +405,7 @@ discussions but 1.50 allows a premium for reliable customers)
 | approval_pct | slider | 0-100 | 5 | 20 | % | Approval needed if the limit changes more than this vs the current one. | Serve approvazione se il fido cambia più di così rispetto all'attuale. |
 
 **Other settings / Altre impostazioni** (collapsed expander; not offered in sensitivity):
-approval_min_change_ron (number_input, step 1,000, default 5,000 RON: approval only if the change is above
+approval_min_change (number_input, step 1,000, default 5,000 RON: approval only if the change is above
 ±20% **and** above this amount) · round_direction (segmented Up/Down, default Up) · coef_exempt_not_in_cerved (slider 0-1.5, 0.50) ·
 eur_rate (number_input 4.000-6.000, step 0.001, 4.975, "RON per 1 EUR") · tier1_eur / tier2_eur
 (number_input, step 10,000, 50,000 / 200,000) · intercompany codes, special classes, exempt classes

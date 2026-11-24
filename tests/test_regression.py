@@ -63,7 +63,7 @@ def test_regression_reference_legacy_cap():
         print("  (skipped: data files not found)")
         return
     for rate in (4.975, 5.0415):
-        r = simulate(d, Params(eur_ron=rate, **LEGACY_PARAMS))
+        r = simulate(d, Params(eur_rate=rate, **LEGACY_PARAMS))
         _check(kpis(r), {**COMMON, **LEGACY})
     if REF_PARQUET.exists():
         import pandas as pd

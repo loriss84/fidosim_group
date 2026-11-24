@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from core import country as CO
 from core import texts as TX
 from core.engine import reference_date
 from core.export import to_excel
@@ -78,6 +79,38 @@ def params() -> Params:
     return st.session_state.params
 
 
+# ---------------------------------------------------------------------------
+# Country (one JDE company at a time; see core.country)
+# ---------------------------------------------------------------------------
+def activate_country() -> CO.Country:
+    """Make the scenario's country the active one (currency in texts, VAT prefix, balance source)."""
+    return CO.set_active(params().country)
+
+
+def set_country(code: str, detected: bool = False) -> None:
+    """Switch country: local values (currency amounts, intercompany list) to the country's defaults,
+    the formula parameters are kept. The files are read again for the new country."""
+    ss = st.session_state
+    c = CO.get(code)
+    if c.code != params().country:
+        set_params(params().replace(**c.param_defaults()))
+        ss.scn_name = ss.scn_json = None
+    ss.country_locked = not detected
+    ss.country_detected = c.code if detected else None
+    CO.set_active(c.code)
+
+
+def sync_country(data: LoadedData) -> bool:
+    """First Check fidi of another country (and no explicit choice yet): switch to it. True = switched."""
+    ss = st.session_state
+    det = CO.detect(data.checkfidi)
+    ss.country_from_file = det
+    if det and det != params().country and not ss.get("country_locked"):
+        set_country(det, detected=True)
+        return True
+    return False
+
+
 def set_params(p: Params, name: str | None = None) -> None:
     """Make ``p`` the active scenario and re-sync every parameter widget from it."""
     ss = st.session_state
@@ -124,12 +157,13 @@ def _folder_entries() -> list[tuple[str, str, bytes]]:
 
 
 @st.cache_resource(show_spinner=False, max_entries=24)
-def _parse(digest: str, name: str, _data: bytes) -> LoadedData:
+def _parse(digest: str, name: str, _data: bytes, country: str = "RO") -> LoadedData:
+    CO.set_active(country)          # the VAT prefix and the local currency depend on it
     return load_files([(name, _data)])
 
 
 @st.cache_resource(show_spinner=False, max_entries=8)
-def _combine(key: tuple, _parts: tuple) -> LoadedData:
+def _combine(key: tuple, _parts: tuple, country: str = "RO") -> LoadedData:
     """One LoadedData from single-file parses; earlier parts (uploads) win per file kind."""
     ld = LoadedData()
     origin: dict[str, str] = {}
@@ -150,6 +184,7 @@ def _combine(key: tuple, _parts: tuple) -> LoadedData:
             origin[kind] = src
             ld.findings.extend(f for f in part.findings if f.code != "FILE_INVALID"
                                and not f.code.startswith(("MISSING_", "MATCH_", "CV_UNMATCHED")))
+    CO.set_active(country)
     return ld.finalize()
 
 
@@ -158,13 +193,14 @@ def get_data() -> tuple[LoadedData, tuple]:
     entries = [(n, hashlib.md5(b).hexdigest(), b, "upload") for n, b in st.session_state.uploads]
     entries += [(n, d, b, "folder") for n, d, b in _folder_entries()]
     key = tuple((n, d, src) for n, d, _b, src in entries)
-    if key in st.session_state.get("_loaded_keys", set()):
-        parts = tuple(_parse(d, n, b) for n, d, b, _s in entries)
-        return _combine(key, parts), key
+    cc = activate_country().code
+    if (cc, key) in st.session_state.get("_loaded_keys", set()):
+        parts = tuple(_parse(d, n, b, cc) for n, d, b, _s in entries)
+        return _combine(key, parts, cc), key
     with st.spinner(L("loading_files")):
-        parts = tuple(_parse(d, n, b) for n, d, b, _s in entries)
-        data = _combine(key, parts)
-    st.session_state.setdefault("_loaded_keys", set()).add(key)
+        parts = tuple(_parse(d, n, b, cc) for n, d, b, _s in entries)
+        data = _combine(key, parts, cc)
+    st.session_state.setdefault("_loaded_keys", set()).add((cc, key))
     return data, key
 
 
@@ -259,7 +295,7 @@ def no_data(data: LoadedData) -> bool:
     return True
 
 
-APP_VERSION = "3.6 · 22/11/2026"
+APP_VERSION = "4.0 · 24/11/2026"
 
 CSS = """
 <style>
@@ -303,7 +339,8 @@ def sidebar(data: LoadedData) -> None:
     ss.setdefault("lang_seg", lang().upper())
     with st.sidebar:
         st.markdown("### " + L("app_title"))
-        st.caption(L("app_subtitle"))
+        c = CO.active()
+        st.caption(L("app_subtitle") if c.code == "RO" else L("app_subtitle_c", country=c.name(lang()), cur=c.currency))
         st.segmented_control(L("lang_label"), ["IT", "EN"], key="lang_seg", on_change=_on_lang)
         st.divider()
         missing = data.missing

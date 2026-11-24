@@ -1,4 +1,4 @@
-"""Calculation core of the SIAD Romania credit-limit simulator (v3).
+"""Calculation core of the SIAD credit-limit simulator (v4, multi-country).
 
 No Streamlit and no network here: the UI (app.py) only calls these modules.
 """

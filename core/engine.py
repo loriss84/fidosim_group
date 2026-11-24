@@ -11,7 +11,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .loaders import LOCAL_CURRENCY, LoadedData
+from .country import set_active
+from .loaders import LoadedData, local_currency
 from .params import DAYS_MEASURED, Params, ROUND_UP
 from . import explain
 
@@ -462,6 +463,7 @@ def simulate(data: LoadedData, params: Params | None = None, include_all: bool =
     the flags ``is_active`` / ``is_intercompany`` (excluded rows get proposed limit 0).
     """
     p = (params or Params()).check()
+    set_active(p.country)           # texts, currency of the Cerved ceiling
     if data.customers is None:
         raise ValueError("Check fidi file missing: no simulation possible.")
     c = data.matched_customers(p.cerved_reject_vat_conflict)
@@ -560,8 +562,8 @@ def simulate(data: LoadedData, params: Params | None = None, include_all: bool =
     # --- Cerved ceiling (EUR converted; blank currency = RON; other currencies / negative: none) ---
     cur = r["cerved_currency"]
     lim = r["cerved_limit_orig"].to_numpy(dtype=float)
-    r["cerved_limit_ron"] = np.where(cur.eq("EUR"), lim * p.eur_ron,
-                                     np.where(cur.isna() | cur.eq(LOCAL_CURRENCY), lim, np.nan))
+    r["cerved_limit_ron"] = np.where(cur.eq("EUR"), lim * p.eur_rate,
+                                     np.where(cur.isna() | cur.eq(local_currency()), lim, np.nan))
     has_ceiling = (p.cerved_cap_enabled & r["in_cerved"] & r["cerved_limit_usable"]
                    & r["cerved_limit_ron"].notna()).to_numpy(bool)
     r["ceiling"] = np.where(has_ceiling, r["cerved_limit_ron"], np.nan)
@@ -610,8 +612,8 @@ def simulate(data: LoadedData, params: Params | None = None, include_all: bool =
     r["plausibility_flag"] = np.nan_to_num(ratio, nan=0.0) > p.plausibility_threshold
     # approval: change above the % threshold AND above the materiality amount (both, strictly)
     r["approval_needed"] = ((r["direction"] != "EQUAL") & (np.abs(r["diff_pct"]) > p.approval_threshold)
-                            & (np.abs(diff) > p.approval_min_change_ron))
-    r["proposed_limit_eur"] = prop / p.eur_ron
+                            & (np.abs(diff) > p.approval_min_change))
+    r["proposed_limit_eur"] = prop / p.eur_rate
     eur = r["proposed_limit_eur"]
     r["tier"] = np.select([eur <= p.tier1_eur, eur <= p.tier2_eur], [1, 2], 3)
 

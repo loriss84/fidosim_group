@@ -16,6 +16,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from . import country as _country
+
 KIND_CHECKFIDI = "checkfidi"
 KIND_CERVED = "cerved"
 KIND_AR = "ar124"
@@ -94,8 +96,13 @@ SIGNATURES = {
 }
 HEADER_ROWS = (0, 1, 2)   # header row tried in order (MD105 has a title on row 1, the header on row 2)
 SCORES = ("AFFIDABILE", "CAUTELA", "MASSIMA CAUTELA")
-LOCAL_CURRENCY = "RON"           # country currency; Cerved limits in it are used as they are
-KNOWN_CURRENCIES = (LOCAL_CURRENCY, "EUR")  # EUR converted at the eur_ron parameter
+def local_currency() -> str:
+    """Currency of the active country: Cerved limits in it are used as they are (EUR converted at eur_rate)."""
+    return _country.currency()
+
+
+def known_currencies() -> tuple[str, ...]:
+    return tuple(dict.fromkeys((local_currency(), "EUR")))
 
 
 def detect_kind(columns: Iterable[Any]) -> str | None:
@@ -174,11 +181,12 @@ def code_to_str(x: Any) -> str | None:
 
 
 def normalize_vat(x: Any) -> str | None:
-    """VAT key: letters and digits only, upper case, leading 'RO' removed ('RO 14697790' -> '14697790')."""
+    """VAT key: letters and digits only, upper case, the active country's prefix removed
+    ('RO 14697790' -> '14697790' for Romania, 'SK2020123456' -> '2020123456' for Slovakia)."""
     if x is None or (isinstance(x, float) and np.isnan(x)) or x is pd.NA:
         return None
     s = re.sub(r"[^A-Z0-9]", "", str(x).upper())
-    s = re.sub(r"^RO", "", s)
+    s = _country.strip_vat_prefix(s)
     return s or None
 
 
@@ -554,15 +562,15 @@ def clean_cerved(raw: pd.DataFrame, file_name: str = "cerved") -> tuple[pd.DataF
             {"rows": int(dmask.sum()), "codes_with_different_vat": diff_company}))
     has_lim = df["cerved_limit"].notna()
     label = lambda m: [f"{c or '-'} {n}" for c, n in df.loc[m, ["code", "name"]].fillna("").values][:10]  # noqa: E731
-    eur = df["currency"].eq("EUR") & has_lim
+    eur = df["currency"].eq("EUR") & has_lim & (local_currency() != "EUR")
     if eur.any():
         findings.append(Finding("CV_EUR_LIMIT", SEV_INFO, int(eur.sum()), label(eur)))
     nocur = df["currency"].isna() & has_lim
     if nocur.any():
         findings.append(Finding("CV_NO_CURRENCY", SEV_INFO, int(nocur.sum()),
                                 df.loc[nocur, "code"].fillna("?").head(10).tolist(),
-                                {"assumed": LOCAL_CURRENCY}))
-    other = df["currency"].notna() & ~df["currency"].isin(KNOWN_CURRENCIES) & has_lim
+                                {"assumed": local_currency()}))
+    other = df["currency"].notna() & ~df["currency"].isin(known_currencies()) & has_lim
     if other.any():
         findings.append(Finding("CV_OTHER_CURRENCY", SEV_WARNING, int(other.sum()), label(other),
                                 {"currencies": ", ".join(sorted(df.loc[other, "currency"].unique().tolist()))}))

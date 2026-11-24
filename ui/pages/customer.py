@@ -1,7 +1,8 @@
 """Page "Cliente / Customer": how do we get to this limit? (UX.md section 4)
 
 Layout (v3.3): header with badges, four tiles, the answer in two sentences, then four tabs:
-calculation · Cerved, payments and checks · public balance sheet (ANAF) · invoices.
+calculation · Cerved, payments and checks · public balance sheet (ANAF, RÚZ, or typed in from the
+register: core.bs_providers) · invoices.
 """
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ import pandas as pd
 import streamlit as st
 
 from core import balance as BS
+from core import bs_providers as BP
+from core import country as CO
 from core import texts as TX
 from core.engine import (SCORE_CAUTION, SCORE_MAX, SCORE_RELIABLE, blocked_months, customer_invoices,
                          purchase_gap_effect, purchase_months)
@@ -60,24 +63,33 @@ cust_row = data.matched_customers(p.cerved_reject_vat_conflict)
 cust_row = cust_row[cust_row["code"] == row["code"]]
 
 # --- public balance sheet: read what is already known (session or saved on this PC), no network ---
-if "bs_params" not in ss:
-    ss.bs_params = BS.BalanceParams()
+country = CO.active()
+prov = BP.for_country(country.code)
+if ss.get("bs_params_country") != country.code:   # the capacity is rounded in the local currency
+    ss.bs_params = BS.BalanceParams(round_to=country.balance_round_to)
+    ss.bs_params_country = country.code
 bp: BS.BalanceParams = ss.bs_params
 ss.setdefault("bs_results", {})
-bs_dir = C.workspace_dir() / "anaf"
+bs_dir = C.workspace_dir() / ("anaf" if country.code == "RO" else "bilanci")
 _cv_vat = cust_row["cv_vat"].iloc[0] if len(cust_row) and "cv_vat" in cust_row else None
-cui, cui_state = BS.cui_from_vat(row["vat"], _cv_vat)
+cui, cui_state = prov.key_from(row["vat"], _cv_vat)
+if cui is None and cui_state == "missing" and not prov.automatic:   # typed in by hand: the code is enough
+    cui, cui_state = f"C{row['code']}", "ok"
+bs_key = f"{country.code}:{cui}"
 bs_res = None
 if cui is not None:
-    bs_res = ss.bs_results.get(cui)
-    if bs_res is None and (bs_dir / f"anaf_{cui}.json").exists():
-        bs_res = ss.bs_results[cui] = BS.lookup(cui, cache_dir=bs_dir)
+    bs_res = ss.bs_results.get(bs_key)
+    if bs_res is None:
+        bs_res = prov.cached(cui, bs_dir)
+        if bs_res is not None:
+            ss.bs_results[bs_key] = bs_res
 
 
 def _assessment(res: dict | None) -> BS.Assessment | None:
     if not res or res.get("status") != "ok":
         return None
-    return BS.assess(res["values"], int(res["year"]), new, cur, row.get("turnover_12m"), bp=bp)
+    return BS.assess(res["values"], int(res["year"]), new, cur, row.get("turnover_12m"), bp=bp,
+                     period_end_month=int(res.get("period_end_month") or 12))
 
 
 bs_a = _assessment(bs_res)
@@ -87,6 +99,18 @@ BS_STYLE = {"valid": (st.success, ":material/check_circle:", "green"),
             "zero_confirmed": (st.success, ":material/check_circle:", "green"),
             "zero_formula": (st.info, ":material/info:", "blue"),
             "na": (st.info, ":material/info:", "gray")}
+
+
+def bs_status_text(res: dict, strip: bool = False) -> str:
+    """Sentence for an answer without figures: not found, no structured data, error."""
+    years = ", ".join(str(y) for y in res.get("years_tried", []))
+    if res["status"] == "not_found":
+        return C.L("bs_not_found", cui=cui, years=years)
+    if res["status"] == "no_data":
+        url = (res.get("newer_pdf") or {}).get("url") or res.get("url", "")
+        return C.L("bs_no_data", src=country.register_name, years=years or "-", url=url)
+    txt = C.L("bs_error", err=res.get("error", "?"), url=res.get("url", ""))
+    return f":red[{txt}]" if strip else txt
 
 
 def verdict_head(a: BS.Assessment, res: dict) -> str:
@@ -133,7 +157,7 @@ if row["is_intercompany"]:
 t = st.columns(4)
 t[0].metric(C.L("cust_t_cur"), LG.amt(cur, lg), border=True)
 t[1].metric(C.L("cust_t_new"), LG.amt(new, lg),
-            C.L("delta_vs_current_short", d=LG.signed(new - cur, lg) + " RON") if abs(new - cur) >= 0.5 else None,
+            C.L("delta_vs_current_short", d=LG.signed(new - cur, lg) + " " + CO.currency()) if abs(new - cur) >= 0.5 else None,
             delta_color="off", border=True)
 t[2].metric(C.L("cust_t_expo"), LG.amt(expo, lg), border=True)
 over_new, over_cur = expo > new, expo > cur
@@ -171,21 +195,23 @@ with st.container(border=True):
     else:
         s1, s2 = st.columns([2, 1], vertical_alignment="center")
         with s1:
-            if not bs_res:
+            if not bs_res or (not prov.automatic and bs_res.get("status") != "ok"):
                 st.markdown(C.L("bs_strip_todo"))
             elif bs_res["status"] == "ok" and bs_a is not None:
                 color = BS_STYLE[bs_a.verdict][2]
                 st.markdown(f":{color}[**{verdict_head(bs_a, bs_res)}**]  \n" + C.L("bs_strip_details", year=bs_res["year"]))
-            elif bs_res["status"] == "not_found":
-                st.markdown(C.L("bs_not_found", cui=cui, years=", ".join(str(y) for y in bs_res.get("years_tried", []))))
             else:
-                st.markdown(":red[" + C.L("bs_error", err=bs_res.get("error", "?"), url=bs_res.get("url", "")) + "]")
+                st.markdown(bs_status_text(bs_res, strip=True))
         with s2:
-            if st.button(C.L("bs_btn_refresh" if bs_res else "bs_btn"), icon=":material/account_balance:",
-                         key=f"bs_btn_{cui}", type="secondary" if bs_res else "primary", width="stretch"):
-                with st.spinner(C.L("bs_spinner", cui=cui)):
-                    ss.bs_results[cui] = BS.lookup(cui, cache_dir=bs_dir, refresh=True)
-                st.rerun()   # badge, strip, tab and button label follow the new answer
+            if prov.automatic:
+                if st.button(C.L("bs_btn_refresh" if bs_res else "bs_btn"), icon=":material/account_balance:",
+                             key=f"bs_btn_{cui}", type="secondary" if bs_res else "primary", width="stretch"):
+                    with st.spinner(C.L("bs_spinner", cui=cui)):
+                        ss.bs_results[bs_key] = prov.lookup(cui, cache_dir=bs_dir, refresh=True)
+                    st.rerun()   # badge, strip, tab and button label follow the new answer
+            else:
+                st.link_button(C.L("bs_open_register", src=country.register_name), prov.search_url(cui),
+                               icon=":material/open_in_new:", width="stretch")
 
 tab_calc, tab_prof, tab_bs, tab_inv = st.tabs([
     ":material/calculate: " + C.L("cust_tab_calc"), ":material/fact_check: " + C.L("cust_tab_profile"),
@@ -265,7 +291,7 @@ with tab_calc:
                 alt.Tooltip("od:Q", title=C.L("blk_tt_od", d=int(p.behaviour_tolerance_days)), format=",.0f"),
                 alt.Tooltip("cat:N", title=C.L("blk_tt_cat"))]
         bars = alt.Chart(cd).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, opacity=0.85).encode(
-            x=x, y=alt.Y("amount:Q", title="RON", axis=alt.Axis(format="~s")), color=color, tooltip=tips)
+            x=x, y=alt.Y("amount:Q", title=CO.currency(), axis=alt.Axis(format="~s")), color=color, tooltip=tips)
         line = alt.Chart(cd).mark_line(color="#1B2430", strokeWidth=2, point=alt.OverlayMarkDef(
             color="#1B2430", size=40)).encode(x=x, y="peak:Q", tooltip=tips)
         od_line = alt.Chart(cd).mark_line(color="#C62828", strokeWidth=2, point=alt.OverlayMarkDef(
@@ -312,9 +338,9 @@ with tab_prof:
             box("box_cerved", [(C.L("cv_not_found"), "")])
         else:
             lim_unit = LG.whole_ron(row["cerved_limit_ron"])   # whole RON, as the proposed limit uses it
-            if row["cerved_currency"] == "EUR" and pd.notna(row["cerved_limit_orig"]):
+            if row["cerved_currency"] == "EUR" and CO.currency() != "EUR" and pd.notna(row["cerved_limit_orig"]):
                 lim = C.L("cv_limit_eur", eur=LG.num(row["cerved_limit_orig"], lg),
-                          ron=LG.amt(lim_unit, lg), rate=LG.param_value("eur_ron", p.eur_ron, lg))
+                          ron=LG.amt(lim_unit, lg), rate=LG.param_value("eur_rate", p.eur_rate, lg))
             else:
                 lim = LG.amt(lim_unit, lg)
             box("box_cerved", [(C.L("cv_score"), score), (C.L("cv_limit"), lim),
@@ -337,13 +363,13 @@ with tab_prof:
         elif cur <= 0:
             chg = C.L("ck_change_new")
         else:
-            chg = f"{LG.signed(new - cur, lg)} RON ({LG.signed_pct(row['diff_pct'], lg)})"
+            chg = f"{LG.signed(new - cur, lg)} {CO.currency()} ({LG.signed_pct(row['diff_pct'], lg)})"
         athr = LG.pct(p.approval_threshold, lg)
         tier = C.L("ck_tier_na") if new <= 0 else C.L("ck_tier_val", t=int(row["tier"]), ron=LG.amt(new, lg),
                                                       eur=LG.num(row["proposed_limit_eur"], lg))
         box("box_checks", [(C.L("ck_plaus"), plaus), (C.L("ck_change"), chg),
                            (C.L("ck_approval"), C.L("ck_approval_yes" if row["approval_needed"] else "ck_approval_no",
-                                                    thr=athr, amt=LG.amt(p.approval_min_change_ron, lg))),
+                                                    thr=athr, amt=LG.amt(p.approval_min_change, lg))),
                            (C.L("ck_tier"), tier)])
     with right:
         day_rows = [(C.L("pd_measured"), LG.days(row["days_measured"], lg)),
@@ -422,7 +448,7 @@ def _show_balance(res: dict, a: BS.Assessment) -> None:
         k[0].metric(C.L("bs_k_proposed"), lim, border=True)
         k[1].metric(C.L("bs_k_capacity"), cap, border=True)
         d = (a.suggested or 0) - new
-        k[2].metric(C.L("bs_k_suggested"), sug, (LG.signed(d, lg) + " RON") if abs(d) >= 0.5 else None,
+        k[2].metric(C.L("bs_k_suggested"), sug, (LG.signed(d, lg) + " " + CO.currency()) if abs(d) >= 0.5 else None,
                     delta_color="normal", border=True)
         k[3].metric(C.L("bs_k_current"), LG.amt(cur, lg), border=True)
         if r["current_on_equity"] is not None and cur > 0:
@@ -437,7 +463,7 @@ def _show_balance(res: dict, a: BS.Assessment) -> None:
     if net is None:
         _card(g2, "info", C.L("bs_q_profit"), "-", C.L("bs_a_profit_na"))
     else:
-        per100 = _x(abs(net) / to * 100, 1) + " RON" if to else "-"
+        per100 = _x(abs(net) / to * 100, 1) + " " + CO.currency() if to else "-"
         _card(g2, "good" if net >= 0 else "bad", C.L("bs_q_profit"), LG.signed_big(net, lg, abs(net) >= 1e6),
               C.L("bs_a_profit" if net >= 0 else "bs_a_loss", net=LG.big(abs(net), lg), m=per100))
     if eq is None:
@@ -460,10 +486,15 @@ def _show_balance(res: dict, a: BS.Assessment) -> None:
     _card(h3, "info", C.L("bs_q_siad"), LG.pct(sh, lg, 1),
           C.L("bs_a_siad", pct=LG.pct(sh, lg, 1)) if sh is not None else C.L("bs_a_siad_na"))
     # 3) source and technical details ---------------------------------------------------------------
-    st.caption(C.L("bs_source", name=res.get("name") or "-", cui=res["cui"], year=yr,
+    if res.get("period"):
+        st.caption(C.L("bs_period", period=res["period"], tpl=res.get("template") or "-"))
+    if res.get("newer_pdf"):
+        st.info(C.L("bs_newer_pdf", period=res["newer_pdf"]["period"], url=res["newer_pdf"]["url"]),
+                icon=":material/description:")
+    st.caption(C.L("bs_source", name=res.get("name") or "-", cui=res.get("cui") or res.get("key"), year=yr,
                    desc=res.get("caen_desc") or "-", at=str(res.get("fetched_at", "")).replace("T", " ")[:16],
-                   url=res.get("url", "")))
-    if not _same_name(row["name"], res.get("name", "")):
+                   url=res.get("report_url") or res.get("url", "")))
+    if res.get("name") and not _same_name(row["name"], res.get("name", "")):
         st.warning(C.L("bs_name_differs", name=res.get("name", "")), icon=":material/badge:")
     with st.expander(C.L("bs_tech"), icon=":material/table_chart:"):
         t1, t2 = st.columns(2)
@@ -486,19 +517,58 @@ def _show_balance(res: dict, a: BS.Assessment) -> None:
                      hide_index=True, width="stretch")
 
 
+def _manual_entry(res: dict | None) -> None:
+    """Countries without an automatic source: open the register, type the figures, save them here."""
+    entered = (res or {}).get("entered") or {}
+    with st.container(border=True):
+        h1, h2 = st.columns([3, 1], vertical_alignment="center")
+        h1.markdown(f"**{C.L('bs_m_title')}**")
+        h2.link_button(C.L("bs_open_register", src=country.register_name), prov.search_url(cui),
+                       icon=":material/open_in_new:", width="stretch")
+        st.caption(C.L("bs_m_help", cur=country.currency, terms=TX.BS_TERMS.get(country.code, "-")))
+        with st.form(f"bs_manual_{bs_key}", border=False):
+            f = st.columns(4)
+            yr = f[0].number_input(C.L("bs_m_year"), 2000, 2100, int((res or {}).get("year") or pd.Timestamp.today().year - 1), 1)
+            nm = f[1].text_input(C.L("bs_m_name"), (res or {}).get("name") or row["name"])
+            vals: dict[str, float | None] = {}
+            for i, (k, lbl) in enumerate([("equity", "bs_equity"), ("debts", "bs_debts"),
+                                          ("current_assets", "bs_current"), ("turnover", "bs_turnover"),
+                                          ("net_result", "bs_net"), ("share_capital", "bs_m_share")]):
+                col = f[(i + 2) % 4]
+                vals[k] = col.number_input(f"{C.L(lbl)} ({country.currency})", value=entered.get(k), step=1000.0,
+                                           format="%.0f", key=f"bs_m_{bs_key}_{k}")
+            b1, b2 = st.columns([1, 1])
+            save = b1.form_submit_button(C.L("bs_m_save"), type="primary", icon=":material/save:")
+            drop = b2.form_submit_button(C.L("bs_m_delete"), icon=":material/delete:", disabled=not entered)
+        if save:
+            if vals.get("equity") is None:
+                st.warning(C.L("bs_m_need_equity"))
+            else:
+                ss.bs_results[bs_key] = prov.save(cui, vals, int(yr), bs_dir, name=nm)
+                st.rerun()
+        if drop:
+            prov.delete(cui, bs_dir)
+            ss.bs_results.pop(bs_key, None)
+            st.rerun()
+        if res and res.get("status") == "ok":
+            st.caption(C.L("bs_m_saved", at=str(res.get("fetched_at", "")).replace("T", " ")[:16]) + " · "
+                       + C.L("bs_m_key", k=cui))
+
+
 with tab_bs:
     st.caption(C.L("bs_intro"))
     if cui is None:
         st.info(C.L("bs_foreign" if cui_state == "foreign" else "bs_no_cui"), icon=":material/public_off:")
     else:
-        if not bs_res:
-            st.info(C.L("bs_tab_todo"), icon=":material/arrow_upward:")
+        if not prov.automatic:
+            _manual_entry(bs_res)
+        if not bs_res or (not prov.automatic and bs_res.get("status") != "ok"):
+            if prov.automatic:
+                st.info(C.L("bs_tab_todo"), icon=":material/arrow_upward:")
         elif bs_res["status"] == "error":
-            st.error(C.L("bs_error", err=bs_res.get("error", "?"), url=bs_res.get("url", "")),
-                     icon=":material/cloud_off:")
-        elif bs_res["status"] == "not_found":
-            st.info(C.L("bs_not_found", cui=cui, years=", ".join(str(y) for y in bs_res.get("years_tried", []))),
-                    icon=":material/search_off:")
+            st.error(bs_status_text(bs_res), icon=":material/cloud_off:")
+        elif bs_res["status"] in ("not_found", "no_data"):
+            st.info(bs_status_text(bs_res), icon=":material/search_off:")
         else:
             _show_balance(bs_res, bs_a)
         with st.expander(C.L("bs_rules"), icon=":material/tune:"):
@@ -509,7 +579,7 @@ with tab_bs:
             lv_ = q[2].number_input(C.L("bs_p_lev"), 0.5, 50.0, float(bp.max_debt_to_equity), 0.5, key="bs_p_lev")
             lq_ = q[3].number_input(C.L("bs_p_liq"), 0.0, 5.0, float(bp.min_liquidity), 0.1, key="bs_p_liq")
             ag_ = q[4].number_input(C.L("bs_p_age"), 6, 60, int(bp.max_age_months), 1, key="bs_p_age")
-            newp = BS.BalanceParams(sh_ / 100, min(wk_, sh_) / 100, lv_, lq_, int(ag_))
+            newp = BS.BalanceParams(sh_ / 100, min(wk_, sh_) / 100, lv_, lq_, int(ag_), bp.round_to)
             if newp != bp:
                 ss.bs_params = newp
                 st.rerun()

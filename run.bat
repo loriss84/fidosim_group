@@ -1,5 +1,5 @@
 @echo off
-REM Avvio del Simulatore Fido SIAD Romania (v3) su Windows: doppio clic su questo file.
+REM Avvio del Simulatore Fido SIAD (multi-paese, v4) su Windows: doppio clic su questo file.
 cd /d "%~dp0"
 where py >nul 2>nul
 if %errorlevel%==0 (set PY=py) else (set PY=python)

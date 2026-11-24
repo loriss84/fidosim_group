@@ -1,5 +1,8 @@
 """Public balance sheet of a Romanian customer (ANAF web service) and a second opinion on the limit.
 
+The second opinion (``assess``) is the same for every country; the other countries' sources are in
+``core.bs_providers`` and give their figures with the keys of ``FIELDS``.
+
 NOT part of the limit formula: the Customer page shows it on request, next to the proposed limit.
 
 Source: ANAF public web service, no authentication, one CUI and one year per call:
@@ -185,7 +188,7 @@ def _div(a: float | None, b: float | None) -> float | None:
 
 def assess(values: dict[str, float], year: int, proposed: float, current: float,
            siad_turnover_12m: float | None = None, today: date | None = None,
-           bp: BalanceParams | None = None) -> Assessment:
+           bp: BalanceParams | None = None, period_end_month: int = 12) -> Assessment:
     """Is the proposed limit right for this company, and if not, what is?
 
     Capacity = net equity x ``equity_share`` (10%), or x ``weak_equity_share`` (5%) when the company
@@ -217,7 +220,7 @@ def assess(values: dict[str, float], year: int, proposed: float, current: float,
         "current_on_equity": _div(current, pos_eq),
         "siad_share": _div(siad_turnover_12m, to),
     }
-    age = max(0, (today.year - year) * 12 + today.month - 12)
+    age = max(0, (today.year - year) * 12 + today.month - int(period_end_month or 12))
     old = age > bp.max_age_months
     if eq is None:
         return Assessment("na", None, None, None, [], old, age, ratios)

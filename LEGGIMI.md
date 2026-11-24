@@ -1,7 +1,55 @@
-# Simulatore Fido SIAD Romania (v3.2, versione 3.6)
+# Simulatore Fido SIAD (multi-paese, formula v3.2, versione 4.0)
 
-Calcola il fido proposto per i clienti di SIAD Romania (società 42, RON) con la formula v3.2,
-lo confronta con il fido attuale e spiega ogni differenza.
+Calcola il fido proposto per i clienti di una società SIAD con la formula v3.2, lo confronta con il fido
+attuale e spiega ogni differenza. Nasce dal simulatore della Romania (repository `fidosim_romania`):
+**per la Romania i risultati sono identici, cliente per cliente** (verificato dal test `test_golden_romania_unchanged`).
+
+## Paesi (novità della versione 4.0)
+
+Si lavora su **un paese alla volta**. Il paese si sceglie nella pagina **Dati** (in alto) oppure viene
+riconosciuto dal file Check fidi (nome della società, codice società o prefisso delle partite IVA): in quel caso
+compare l'avviso "Il file Check fidi è di …". Cambiando paese la formula resta la stessa; cambiano solo:
+
+| Paese | Valuta | Fido minimo e materialità | Arrotondamento | Bilanci pubblici |
+|---|---|---|---|---|
+| Romania | RON | 5.000 | 1.000 | ANAF, automatico |
+| Slovacchia | EUR | 1.000 | 250 | **RÚZ, automatico** (Register účtovných závierok, gratuito, senza chiave) |
+| Austria | EUR | 1.000 | 250 | Firmenbuch: link al registro + valori scritti a mano (chiave HVD non ancora collegata) |
+| Rep. Ceca | CZK | 25.000 | 5.000 | Sbírka listin (justice.cz): link + valori a mano |
+| Germania | EUR | 1.000 | 250 | Unternehmensregister: link + valori a mano |
+| Ungheria | HUF | 400.000 | 100.000 | e-beszámoló: link + valori a mano |
+
+Tutti i valori restano modificabili nel Laboratorio e **non contano come "modifiche alla formula"**.
+L'elenco **intercompany** è compilato solo per la Romania: per gli altri paesi va riempito nel Laboratorio
+(Altre impostazioni), altrimenti le società del gruppo restano nel calcolo (la pagina Dati lo ricorda).
+I cambi (CZK 25,3, HUF 400 per 1 EUR) sono valori di partenza da aggiornare.
+
+### Slovacchia senza Cerved
+
+Con Check fidi + AR124 (+ MD105) il simulatore funziona anche senza lo Slim Report Cerved: tutti i clienti sono
+"non in Cerved" (coefficiente di rischio **0,50**), non c'è il tetto Cerved né il controllo di plausibilità. Il
+banner giallo lo ricorda su ogni pagina. Per provare altri coefficienti: Laboratorio → "Non in Cerved".
+
+### Bilancio pubblico slovacco (RÚZ)
+
+Nella pagina Cliente il tasto **Leggi l'ultimo bilancio** cerca l'azienda nel registro RÚZ con la partita IVA
+(SK + 10 cifre = DIČ) o l'IČO, prende l'ultimo bilancio individuale (non consolidato) con i numeri in tabella
+(schemi "Úč POD" e "Úč MUJ" per le microimprese) e dà lo stesso secondo parere della Romania: fido fino al 10%
+del patrimonio netto (5% se c'è una debolezza), arrotondato a 250 EUR. Come in ANAF, i debiti sono "Záväzky"
+**senza** le riserve (rezervy). La prima lettura richiede qualche secondo; poi il risultato resta salvato su
+questo PC (cartella `workspace/bilanci`). Casi particolari:
+
+- società che depositano il bilancio IFRS o scansionato (grandi gruppi): i numeri non si possono leggere, la
+  pagina dà il link al documento;
+- bilanci più vecchi di 4 anni non vengono usati;
+- ditte individuali: i loro bilanci non sono pubblici.
+
+### Austria, Rep. Ceca, Germania, Ungheria: bilancio scritto a mano
+
+Non c'è un servizio gratuito che dia i numeri a un programma (l'Austria ce l'ha, ma serve una chiave API
+richiesta con ID Austria). La scheda **Bilancio pubblico** ha il tasto per aprire il registro e un riquadro dove
+scrivere 6 valori dell'ultimo bilancio (patrimonio netto, debiti, attivo circolante, fatturato, risultato netto,
+capitale sociale) con i nomi delle voci nella lingua del paese. **Salva e valuta** dà lo stesso secondo parere.
 
 **Formula v3.2 (default dal 21/11/2026): anzianità del cliente.** L'anzianità = mesi dalla **data di apertura
 del conto** (anagrafica clienti JDE **MD105**) alla data di riferimento; se la prima fattura AR124 è più vecchia
@@ -101,7 +149,7 @@ METAL GAZ (30002232): nessun acquisto da dicembre ad aprile, 22.940 contro 39.32
 contro circa 91.000 (oggi 90.000); con 53.000 gli ordini si sarebbero bloccati in 5 mesi (giugno, luglio,
 agosto, ottobre, novembre), con 90.000 mai. È solo una spiegazione: **la formula non cambia**.
 
-### Bilancio pubblico (ANAF)
+### Bilancio pubblico (ANAF, Romania)
 
 Il tasto **"Leggi l'ultimo bilancio"** (nel riquadro sopra le schede) interroga il servizio pubblico ANAF
 (`https://webservicesp.anaf.ro/bilant?an=ANNO&cui=CUI`, gratuito, senza credenziali) con la partita IVA
@@ -156,6 +204,15 @@ le partite IVA estere non si possono cercare.
    scenario attivo.
 
 ## Per chi mantiene il codice
+
+- Profili paese: `core/country.py`; fonti dei bilanci: `core/bs_providers.py` (ANAF resta in `core/balance.py`,
+  dove c'è anche il secondo parere comune a tutti i paesi); testi specifici per paese: `COUNTRY_TEXTS` in fondo a
+  `core/texts.py` (i testi sono scritti in RON: "RON" diventa la valuta del paese attivo).
+- I due parametri con "ron" nel nome sono stati rinominati (`eur_ron` → `eur_rate`, `approval_min_change_ron`
+  → `approval_min_change`): gli scenari salvati con i vecchi nomi si caricano lo stesso.
+- Dati di prova senza dati reali: `python -m tests.synthetic <cartella> RO|SK` scrive file sintetici con le
+  intestazioni vere. `tests/fixtures/golden_ro.json.gz` è la fotografia dei risultati rumeni calcolati con
+  `fidosim_romania`: `python -m tests.golden` confronta.
 
 - `app.py` è solo la cornice; le pagine sono in `ui/pages/`, lo stato condiviso in `ui/common.py`,
   la logica di presentazione (senza Streamlit) in `ui/logic.py`, gli scenari in `ui/scenarios.py`.

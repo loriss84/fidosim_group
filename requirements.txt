@@ -1,4 +1,4 @@
-# Simulatore Fido SIAD Romania (v3). Python 3.10 o superiore.
+# Simulatore Fido SIAD (multi-paese, v4). Python 3.10 o superiore.
 # streamlit >= 1.50: API "width" usate dall'interfaccia (le vecchie use_container_width sono deprecate).
 streamlit>=1.50
 pandas>=2.0

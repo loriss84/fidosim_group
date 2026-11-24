@@ -42,7 +42,7 @@ from ui import scenarios as SC  # noqa: E402
 APP = str(ROOT / "app.py")
 # The app starts empty by default; the tests load the real files from data/ through FIDO_DATA_DIR.
 os.environ.setdefault("FIDO_DATA_DIR", str(ROOT / "data"))
-DATA = ROOT / "data"
+DATA = Path(os.environ["FIDO_DATA_DIR"])
 PAGES = ["data", "results", "customer", "lab", "rules"]
 TIMEOUT = 120
 

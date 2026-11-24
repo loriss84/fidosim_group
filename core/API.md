@@ -1,6 +1,17 @@
 # core API (for the UI builder)
 
-All functions are pure pandas/numpy, no Streamlit, no network. Amounts in RON.
+All functions are pure pandas/numpy, no Streamlit, no network (except the balance-sheet lookups). Amounts in
+the local currency of the active country (RON for Romania).
+
+## Countries — `core.country`, `core.bs_providers` (v4.0)
+- `country.PROFILES[code]` (RO, SK, AT, CZ, DE, HU): currency, VAT prefix, local defaults, balance source.
+  `set_active(code)` / `active()`; `Params.for_country(code, **kw)`; `simulate` sets the active country from
+  `params.country`; loaders use it for the VAT prefix and the local currency (`loaders.local_currency()`).
+  `country.detect(checkfidi)` -> code or None. Texts: "RON" is replaced by the active currency
+  (`country.localise`), `texts.COUNTRY_TEXTS[code][key]` overrides a text for one country.
+- `bs_providers.for_country(code)` -> provider with `key_from(*vats)`, `cached(key, dir)`, `lookup(key, dir,
+  refresh)`, `search_url(key)`; `ManualProvider.save/delete`. Results have the ANAF shape (`values` with
+  `balance.FIELDS` keys) and status ok / not_found / no_data / error. `balance.assess(..., period_end_month=12)`.
 Codes are returned by the core; sentences live in `core/texts.py`.
 
 ## Loading — `core.loaders`
@@ -56,8 +67,8 @@ Codes are returned by the core; sentences live in `core/texts.py`.
   terms_positive_only, m1_days_basis ("contractual" default v3.1 | "measured"), buffer, multiplier, coef_reliable, coef_caution, coef_max_caution, coef_not_in_cerved,
   coef_exempt_not_in_cerved, cerved_reject_vat_conflict, behaviour_enabled (default True),
   behaviour_bonus_max (0.05), behaviour_malus_max (0.10), behaviour_tolerance_days (5), behaviour_full_malus_days (30),
-  cerved_cap_enabled, ceiling_is_hard, eur_ron, rounding_step, rounding_mode, min_limit,
-  plausibility_threshold, approval_threshold, approval_min_change_ron (default 5000), tier1_eur, tier2_eur,
+  cerved_cap_enabled, ceiling_is_hard, eur_rate, rounding_step, rounding_mode, min_limit,
+  plausibility_threshold, approval_threshold, approval_min_change (default 5000), tier1_eur, tier2_eur,
   intercompany_codes, special_classes,
   exempt_classes. Labels go in `texts.PARAM_TEXTS[key][lang]` (empty, yours).
 - `ceiling_is_hard=True` (default, lead decision 20/11/2026): the ceiling is used in whole RON everywhere:
@@ -65,10 +76,10 @@ Codes are returned by the core; sentences live in `core/texts.py`.
   step 4 (`limit_after_ceiling`, `ceiling_binds` = ceiling_unit < limit_after_coef) and again after rounding and
   minimum (final = min(final, ceiling_unit), not floored to the step). Every proposed limit is whole RON.
   `ceiling_is_hard=False`: step 4 uses the raw ceiling and no final cap.
-- Integer parameters (`kind == "int"`: min_limit, rounding_step, approval_min_change_ron, days...) must be whole:
+- Integer parameters (`kind == "int"`: min_limit, rounding_step, approval_min_change, days...) must be whole:
   whole floats become int on construction, `validate()` rejects 5000.5, `from_dict` rounds.
 - Approval: `approval_needed` = direction != EQUAL and |diff_pct| > approval_threshold and |diff| >
-  approval_min_change_ron.
+  approval_min_change.
   `cerved_reject_vat_conflict=True` / `terms_positive_only=True`: the other two decisions of 20/11/2026.
   All three `False` reproduce the original SPEC reference exactly.
 - Lists are normalised on construction: classes stripped + upper case; intercompany codes like `code_to_str`.

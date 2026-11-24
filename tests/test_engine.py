@@ -55,7 +55,7 @@ def test_cerved_ceiling_ron_eur_zero_disabled():
     assert one(r, "2").proposed_limit == 50000
     assert one(r, "3").proposed_limit == 0 and one(r, "3").reason_code == X.R_CERVED_ZERO
     assert math.isnan(one(r, "4").ceiling) and one(r, "4").proposed_limit == 220000
-    r = run(cf, cv, P.replace(eur_ron=5.0))
+    r = run(cf, cv, P.replace(eur_rate=5.0))
     close(one(r, "2").ceiling, 50000)
     r = run(cf, cv, P.replace(cerved_cap_enabled=False))
     assert all(one(r, c).proposed_limit == 220000 for c in "1234")
@@ -222,12 +222,12 @@ def test_approval_and_tier():
     assert one(r, "1").tier == 1 and one(r, "5").tier == 3
     r = run(cf, cv, P.replace(approval_threshold=0.05, tier2_eur=500000))
     assert not one(r, "1").approval_needed and one(r, "5").tier == 2   # +2.000 RON: below materiality
-    r = run(cf, cv, P.replace(approval_threshold=0.05, approval_min_change_ron=0))
+    r = run(cf, cv, P.replace(approval_threshold=0.05, approval_min_change=0))
     assert one(r, "1").approval_needed
 
 
 def test_approval_materiality():
-    """Approval only when |change| > threshold % AND |change| > approval_min_change_ron (5.000)."""
+    """Approval only when |change| > threshold % AND |change| > approval_min_change (5.000)."""
     cf = [cf_row(code="1", t12=12000, limit=1000),      # 1.000 -> 5.000: +400% but +4.000 RON
           cf_row(code="2", t12=120000, limit=0),       # 0 -> 22.000: new limit above 5.000
           cf_row(code="3", t12=12000, limit=0),        # 0 -> 5.000: exactly 5.000, not above
@@ -236,9 +236,9 @@ def test_approval_materiality():
     cv = [cv_row(code=float(i)) for i in range(1, 6)]
     r = run(cf, cv)
     assert [bool(one(r, c).approval_needed) for c in "12345"] == [False, True, False, True, False]
-    r = run(cf, cv, P.replace(approval_min_change_ron=0))
+    r = run(cf, cv, P.replace(approval_min_change=0))
     assert [bool(one(r, c).approval_needed) for c in "12345"] == [True, True, True, True, False]
-    assert Params().approval_min_change_ron == 5000
+    assert Params().approval_min_change == 5000
 
 
 def test_reason_priority_and_change_codes():

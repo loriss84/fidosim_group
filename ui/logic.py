@@ -15,10 +15,11 @@ import pandas as pd
 
 from core import texts as TX
 from core.loaders import LoadedData
+from core import country as CO
 from core.params import Params, PARAM_META
 
 # Parameters that are data choices (Data page), not formula choices.
-DATA_KEYS = ("reference_date", "window_months")
+DATA_KEYS = ("country", "reference_date", "window_months")
 BUCKET_ORDER = ["AFFIDABILE", "CAUTELA", "MASSIMA CAUTELA", "NONE"]
 CHANGE_BUCKETS = ["TO_ZERO", "DOWN_50", "DOWN_20_50", "WITHIN_20", "UP_20_50", "UP_50", "FROM_ZERO"]
 ZERO_REASONS = {"R_MAX_CAUTION", "R_CERVED_ZERO", "R_SPECIAL", "R_NO_TURNOVER", "R_ZERO_COEF",
@@ -40,8 +41,8 @@ def num(x: Any, lang: str, decimals: int = 0) -> str:
 
 
 def amt(x: Any, lang: str) -> str:
-    """Amount with unit: '1.234.567 RON'."""
-    return "-" if _bad(x) else f"{num(x, lang)} RON"
+    """Amount with the local currency: '1.234.567 RON'."""
+    return "-" if _bad(x) else f"{num(x, lang)} {CO.currency()}"
 
 
 def mln(x: Any, lang: str) -> str:
@@ -70,7 +71,7 @@ def signed(x: float, lang: str, decimals: int = 0) -> str:
 def signed_big(x: float, lang: str, in_mln: bool) -> str:
     if in_mln:
         return ("-" if x < 0 else "+") + mln(abs(x), lang)
-    return signed(x, lang) + " RON"
+    return signed(x, lang) + " " + CO.currency()
 
 
 def pct(x: Any, lang: str, decimals: int = 0) -> str:
@@ -128,6 +129,8 @@ def param_value(key: str, value: Any, lang: str) -> str:
     kind, unit = meta["kind"], meta["unit"]
     if kind == "bool":
         return TX.T("on" if value else "off", lang)
+    if kind == "choice" and key == "country":
+        return CO.get(value).name(lang)
     if kind == "choice" and key == "m1_days_basis":
         return TX.T("p_m1_measured" if value == "measured" else "p_m1_contractual", lang)
     if kind == "choice":
@@ -142,9 +145,9 @@ def param_value(key: str, value: Any, lang: str) -> str:
         return coef(value, lang)
     if unit == "days":
         return days(value, lang)
-    if unit == "RON/EUR":
+    if unit == "LOCAL/EUR":
         return TX.fmt_amount(float(value), lang, 3)
-    if unit in ("RON", "EUR"):
+    if unit in ("LOCAL", "EUR"):
         return num(value, lang)
     return num(value, lang)
 
@@ -158,7 +161,7 @@ def param_label(key: str, lang: str) -> str:
 # ---------------------------------------------------------------------------
 def base_params(p: Params) -> Params:
     """The v3 default formula with the same data settings as ``p``."""
-    return Params(**{k: getattr(p, k) for k in DATA_KEYS})
+    return Params.for_country(p.country, **{k: getattr(p, k) for k in DATA_KEYS})
 
 
 def formula_changes(p: Params, lang: str, sep: str = " · ") -> tuple[int, str]:
@@ -361,7 +364,7 @@ def step_rows(row: pd.Series, p: Params, lang: str) -> list[dict[str, Any]]:
             add(7 + o, L("st_7"), L("st_7_calc_off"), row["limit_after_ceiling"])
         elif pd.isna(row["ceiling"]) and bool(row["in_cerved"]) and pd.notna(row["cerved_limit_orig"]) \
                 and not bool(row["cerved_limit_usable"]):
-            cur = row["cerved_currency"] if isinstance(row["cerved_currency"], str) else "RON"
+            cur = row["cerved_currency"] if isinstance(row["cerved_currency"], str) else CO.currency()
             add(7 + o, L("st_7"), L("st_7_calc_invalid", amt=f"{A(row['cerved_limit_orig'])} {cur}"),
                 row["limit_after_ceiling"])
         elif pd.isna(row["ceiling"]):
@@ -476,7 +479,7 @@ def quality_checks(data: LoadedData, res: pd.DataFrame | None, p: Params,
         if key is None or f.count <= 0:
             continue
         rows = None
-        meaning = L(key + "_m", rate=TX.fmt_amount(p.eur_ron, lang, 3), **_finding_values(f, lang))
+        meaning = L(key + "_m", rate=TX.fmt_amount(p.eur_rate, lang, 3), **_finding_values(f, lang))
         if f.code == "CV_DUP_CODE" and cv is not None:
             codes = set(f.examples) if len(f.examples) >= f.count else set(
                 cv.loc[cv["code"].duplicated(keep=False) & cv["code"].notna(), "code"])
@@ -505,7 +508,7 @@ def quality_checks(data: LoadedData, res: pd.DataFrame | None, p: Params,
         elif f.code in ("CV_OTHER_CURRENCY", "CV_NEGATIVE_LIMIT") and cv is not None:
             lim = cv["cerved_limit"].notna()
             m = (cv["cerved_limit"] < 0) & lim if f.code == "CV_NEGATIVE_LIMIT" else \
-                lim & cv["currency"].notna() & ~cv["currency"].isin(["RON", "EUR"])
+                lim & cv["currency"].notna() & ~cv["currency"].isin([CO.currency(), "EUR"])
             rows = cv_rows(m)
             rows[L("dq_c_value")] = [f"{num(x, lang)} {c if isinstance(c, str) else ''}".strip()
                                      for x, c in cv.loc[m, ["cerved_limit", "currency"]].values]
@@ -659,10 +662,10 @@ def rules(p: Params, n_scope: int | None, lang: str,
     else:
         limit.append((L("rl_behaviour_off"), ch(*beh_keys)))
     if p.cerved_cap_enabled:
-        cap = L("rl_cap_on", rate=bold("eur_ron", TX.fmt_amount(p.eur_ron, lang, 3)))
+        cap = L("rl_cap_on", rate=bold("eur_rate", TX.fmt_amount(p.eur_rate, lang, 3)))
         if p.ceiling_is_hard:
             cap += " " + L("rl_cap_hard")
-        limit.append((cap, ch("cerved_cap_enabled", "eur_ron", "ceiling_is_hard")))
+        limit.append((cap, ch("cerved_cap_enabled", "eur_rate", "ceiling_is_hard")))
     else:
         limit.append((L("rl_cap_off"), True))
     limit += [
@@ -676,10 +679,10 @@ def rules(p: Params, n_scope: int | None, lang: str,
         (L("rl_plaus", pct=bold("plausibility_threshold", pct(p.plausibility_threshold, lang))),
          ch("plausibility_threshold")),
         (L("rl_approval", pct=bold("approval_threshold", pct(p.approval_threshold, lang)),
-           amt=bold("approval_min_change_ron", num(p.approval_min_change_ron, lang))),
-         ch("approval_threshold", "approval_min_change_ron")),
+           amt=bold("approval_min_change", num(p.approval_min_change, lang))),
+         ch("approval_threshold", "approval_min_change")),
         (L("rl_tiers", t1=bold("tier1_eur", num(p.tier1_eur, lang)), t2=bold("tier2_eur", num(p.tier2_eur, lang)),
-           rate=bold("eur_ron", TX.fmt_amount(p.eur_ron, lang, 3))), ch("tier1_eur", "tier2_eur", "eur_ron")),
+           rate=bold("eur_rate", TX.fmt_amount(p.eur_rate, lang, 3))), ch("tier1_eur", "tier2_eur", "eur_rate")),
     ]
     return {"rules_h_who": who, "rules_h_formula": [formula], "rules_h_limit": limit, "rules_h_checks": checks}
 
