@@ -1,0 +1,11 @@
+# Real customer data (Check fidi, Cerved, AR124, MD105): never in git
+data/*
+!data/.gitkeep
+# Saved scenarios and cached ANAF answers
+workspace/*
+!workspace/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+.streamlit/secrets.toml

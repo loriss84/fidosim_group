@@ -1,0 +1,21 @@
+# Simulatore Fido SIAD Romania: configurazione di Streamlit.
+# Tema chiaro e caratteri grandi per il proiettore (UX.md sezione 8); nessuna telemetria.
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = false
+runOnSave = false
+
+[client]
+toolbarMode = "viewer"
+
+[theme]
+base = "light"
+primaryColor = "#1F4E79"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF2F6"
+textColor = "#111827"
+font = "sans serif"
+baseFontSize = 17
